@@ -31,6 +31,18 @@
         .safe-area-pb {
             padding-bottom: env(safe-area-inset-bottom, 20px);
         }
+
+        /* Soccer Field Texture Pattern */
+        .bg-pitch {
+            background-color: #064e3b; /* emerald-900 */
+            background-image: repeating-linear-gradient(
+                to bottom,
+                #064e3b,
+                #064e3b 40px,
+                #065f46 40px,
+                #065f46 80px
+            );
+        }
     </style>
 
     <!-- Babel for JSX -->
@@ -58,7 +70,7 @@
             Plus, MapPin, Shield, Filter, ChevronUp, ChevronDown, X, User, Edit, Save, Trash2, 
             Clock, AlertCircle, UserPlus, Shirt, Settings, ClipboardList, MoreHorizontal, Upload, 
             Layout, CheckCircle2, Download, Stethoscope, LogOut, Lock, Eye, Star, FileText, 
-            ThumbsUp, ThumbsDown, HelpCircle, CheckSquare, Swords, Search
+            ThumbsUp, ThumbsDown, HelpCircle, CheckSquare, Swords, Search, Check
         } from 'lucide-react';
 
         // --- Constants & Configuration ---
@@ -183,6 +195,27 @@
             ];
         };
 
+        // --- Sorting Utility ---
+        const getPositionWeight = (pos) => {
+            switch (pos) {
+                case 'GK': return 1;
+                case 'DF': return 2;
+                case 'MF': return 3;
+                case 'FW': return 4;
+                case 'Coach': return 5;
+                default: return 6;
+            }
+        };
+
+        const sortPlayersByPosition = (players) => {
+            return [...players].sort((a, b) => {
+                const weightA = getPositionWeight(a.position);
+                const weightB = getPositionWeight(b.position);
+                if (weightA !== weightB) return weightA - weightB;
+                return a.number - b.number; // Secondary sort by number
+            });
+        };
+
         // --- Sub-Components ---
 
         const StatCard = ({ title, value, subtext, icon: Icon, trend }) => (
@@ -212,11 +245,11 @@
             onClick={onClick}
             className={`flex flex-col items-center justify-center gap-1 w-full py-2 rounded-xl transition-all ${
             active 
-                ? 'text-emerald-600 font-bold bg-emerald-50' 
-                : 'text-gray-400 hover:text-gray-600'
+                ? 'text-emerald-100 font-bold bg-emerald-800 border border-emerald-700 shadow-inner' 
+                : 'text-emerald-200 hover:text-white'
             }`}
         >
-            <Icon className={`w-6 h-6 ${active ? 'fill-emerald-100' : ''}`} />
+            <Icon className={`w-6 h-6 ${active ? 'fill-emerald-800' : ''}`} />
             <span className="text-[10px]">{children}</span>
         </button>
         );
@@ -228,7 +261,7 @@
                 <h2 className="text-lg font-bold text-emerald-900">
                     {isManager ? `${selectedYear} 시즌 요약` : `나의 ${selectedYear} 시즌`}
                 </h2>
-                <select value={selectedYear} onChange={(e) => onYearChange(Number(e.target.value))} className="bg-white border border-emerald-200 text-emerald-900 text-xs rounded-lg p-2">
+                <select value={selectedYear} onChange={(e) => onYearChange(Number(e.target.value))} className="bg-white border border-emerald-200 text-emerald-900 text-xs rounded-lg p-2 shadow-sm">
                 <option value={2024}>2024</option>
                 <option value={2023}>2023</option>
                 </select>
@@ -697,10 +730,26 @@
             if (!isOpen || !scheduleItem) return null;
 
             const votes = scheduleItem.votes || {};
-            const attendList = players.filter(p => votes[p.id] === 'attend' && p.position !== 'Coach');
-            const absentList = players.filter(p => votes[p.id] === 'absent' && p.position !== 'Coach');
-            const pendingList = players.filter(p => (votes[p.id] === 'pending' || !votes[p.id]) && p.position !== 'Coach');
+            const isManager = currentUser?.role === 'manager';
+            
+            // Sort helper
+            const sorter = (a, b) => {
+                const weightA = getPositionWeight(a.position);
+                const weightB = getPositionWeight(b.position);
+                if (weightA !== weightB) return weightA - weightB;
+                return a.number - b.number;
+            };
+
+            const attendList = players.filter(p => votes[p.id] === 'attend' && p.position !== 'Coach').sort(sorter);
+            const absentList = players.filter(p => votes[p.id] === 'absent' && p.position !== 'Coach').sort(sorter);
+            const pendingList = players.filter(p => (votes[p.id] === 'pending' || !votes[p.id]) && p.position !== 'Coach').sort(sorter);
+            
             const myVote = currentUser?.role === 'player' ? votes[currentUser.id] : null;
+
+            // 감독이 강제로 출석 처리/취소 하는 함수
+            const handleManagerForceVote = (playerId, status) => {
+                onVote(scheduleItem.id, playerId, status);
+            };
 
             return (
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -746,9 +795,16 @@
                                 </div>
                                 <div className="bg-emerald-50/50 rounded-xl p-3 grid grid-cols-2 gap-2 border border-emerald-100">
                                     {attendList.length > 0 ? attendList.map(p => (
-                                        <div key={p.id} className="flex items-center gap-2 bg-white p-2 rounded-lg shadow-sm border border-emerald-50">
-                                            <span className="font-mono text-emerald-600 font-bold text-xs w-4">{p.number}</span>
-                                            <span className="text-xs font-bold text-gray-700">{p.name}</span>
+                                        <div key={p.id} className="flex items-center justify-between bg-white p-2 rounded-lg shadow-sm border border-emerald-50">
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-mono text-emerald-600 font-bold text-xs w-4">{p.number}</span>
+                                                <span className="text-xs font-bold text-gray-700">{p.name}</span>
+                                            </div>
+                                            {isManager && (
+                                                <button onClick={() => handleManagerForceVote(p.id, 'absent')} className="text-gray-400 hover:text-red-500">
+                                                    <X className="w-3 h-3" />
+                                                </button>
+                                            )}
                                         </div>
                                     )) : <div className="col-span-2 text-center text-xs text-gray-400 py-2">참석자가 없습니다.</div>}
                                 </div>
@@ -759,9 +815,16 @@
                                 </div>
                                 <div className="bg-red-50/50 rounded-xl p-3 grid grid-cols-2 gap-2 border border-red-100">
                                     {absentList.length > 0 ? absentList.map(p => (
-                                        <div key={p.id} className="flex items-center gap-2 bg-white p-2 rounded-lg shadow-sm border border-red-50">
-                                            <span className="font-mono text-red-400 font-bold text-xs w-4">{p.number}</span>
-                                            <span className="text-xs font-bold text-gray-700">{p.name}</span>
+                                        <div key={p.id} className="flex items-center justify-between bg-white p-2 rounded-lg shadow-sm border border-red-50">
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-mono text-red-400 font-bold text-xs w-4">{p.number}</span>
+                                                <span className="text-xs font-bold text-gray-700">{p.name}</span>
+                                            </div>
+                                            {isManager && (
+                                                <button onClick={() => handleManagerForceVote(p.id, 'attend')} className="text-gray-400 hover:text-emerald-500">
+                                                    <Check className="w-3 h-3" />
+                                                </button>
+                                            )}
                                         </div>
                                     )) : <div className="col-span-2 text-center text-xs text-gray-400 py-2">불참자가 없습니다.</div>}
                                 </div>
@@ -770,10 +833,20 @@
                                 <div className="flex items-center justify-between mb-2 px-1">
                                     <h3 className="text-sm font-bold text-gray-500 flex items-center gap-2"><HelpCircle className="w-4 h-4" /> 미정/미투표 ({pendingList.length})</h3>
                                 </div>
-                                <div className="bg-gray-50 rounded-xl p-3 flex flex-wrap gap-2 border border-gray-100">
+                                <div className="bg-gray-50 rounded-xl p-3 grid grid-cols-2 gap-2 border border-gray-100">
                                     {pendingList.length > 0 ? pendingList.map(p => (
-                                        <span key={p.id} className="text-[10px] bg-white border border-gray-200 px-2 py-1 rounded text-gray-500">{p.name}</span>
-                                    )) : <div className="w-full text-center text-xs text-gray-400 py-2">모두 투표했습니다.</div>}
+                                        <div key={p.id} className="flex items-center justify-between bg-white p-2 rounded-lg shadow-sm border border-gray-200">
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-mono text-gray-400 font-bold text-xs w-4">{p.number}</span>
+                                                <span className="text-xs text-gray-500">{p.name}</span>
+                                            </div>
+                                            {isManager && (
+                                                <button onClick={() => handleManagerForceVote(p.id, 'attend')} className="text-gray-300 hover:text-emerald-500">
+                                                    <Check className="w-3 h-3" />
+                                                </button>
+                                            )}
+                                        </div>
+                                    )) : <div className="w-full text-center text-xs text-gray-400 py-2 col-span-2">모두 투표했습니다.</div>}
                                 </div>
                             </div>
                         </div>
@@ -789,6 +862,9 @@
             const [activeFormationTab, setActiveFormationTab] = useState(0);
             const [selectedLineupPos, setSelectedLineupPos] = useState(null);
             const [newEvent, setNewEvent] = useState({ type: 'goal', player: '', period: '1Q', time: '', assist: '', subPlayer: '' });
+
+            // Sorted Players for Dropdowns & Selection
+            const sortedPlayers = useMemo(() => sortPlayersByPosition(players), [players]);
 
             useEffect(() => {
                 if(initialMatch) {
@@ -910,7 +986,7 @@
                                         className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-emerald-500 disabled:bg-gray-100 disabled:text-gray-500"
                                     >
                                         <option value="">MOM 선정 안됨</option>
-                                        {players.filter(p => p.position !== 'Coach').map(p => (
+                                        {sortedPlayers.filter(p => p.position !== 'Coach').map(p => (
                                             <option key={p.id} value={p.name}>{p.name} (No.{p.number})</option>
                                         ))}
                                     </select>
@@ -994,13 +1070,13 @@
                                             <select value={newEvent.player} onChange={(e) => setNewEvent({...newEvent, player: e.target.value})} className="flex-[2] p-2 rounded-xl border border-gray-200 text-xs focus:outline-none focus:border-emerald-500">
                                                 <option value="">{newEvent.type === 'conceded' ? '실점 대상' : '선수 선택'}</option>
                                                 {newEvent.type === 'conceded' ? (
-                                                <><option value="상대팀">상대팀 (일반 실점)</option><optgroup label="자책골">{players.filter(p => p.position !== 'Coach').map(p => (<option key={p.id} value={p.name}>{p.number}. {p.name}</option>))}</optgroup></>
+                                                <><option value="상대팀">상대팀 (일반 실점)</option><optgroup label="자책골">{sortedPlayers.filter(p => p.position !== 'Coach').map(p => (<option key={p.id} value={p.name}>{p.number}. {p.name}</option>))}</optgroup></>
                                                 ) : (
-                                                <>{players.filter(p => p.position !== 'Coach').map(p => (<option key={p.id} value={p.name}>{p.number}. {p.name}</option>))}{newEvent.type === 'goal' && <option value="상대 자책골">상대 자책골</option>}</>
+                                                <>{sortedPlayers.filter(p => p.position !== 'Coach').map(p => (<option key={p.id} value={p.name}>{p.number}. {p.name}</option>))}{newEvent.type === 'goal' && <option value="상대 자책골">상대 자책골</option>}</>
                                                 )}
                                             </select>
-                                            {newEvent.type === 'goal' && newEvent.player !== '상대 자책골' && (<select value={newEvent.assist} onChange={(e) => setNewEvent({...newEvent, assist: e.target.value})} className="flex-1 p-2 rounded-xl border border-gray-200 text-xs focus:outline-none focus:border-emerald-500"><option value="">도움 없음</option>{players.filter(p => p.name !== newEvent.player && p.position !== 'Coach').map(p => (<option key={p.id} value={p.name}>{p.name}</option>))}</select>)}
-                                            {newEvent.type === 'sub' && (<select value={newEvent.subPlayer} onChange={(e) => setNewEvent({...newEvent, subPlayer: e.target.value})} className="flex-1 p-2 rounded-xl border border-gray-200 text-xs focus:outline-none focus:border-emerald-500"><option value="">OUT 선수</option>{players.filter(p => p.name !== newEvent.player && p.position !== 'Coach').map(p => (<option key={p.id} value={p.name}>{p.name}</option>))}</select>)}
+                                            {newEvent.type === 'goal' && newEvent.player !== '상대 자책골' && (<select value={newEvent.assist} onChange={(e) => setNewEvent({...newEvent, assist: e.target.value})} className="flex-1 p-2 rounded-xl border border-gray-200 text-xs focus:outline-none focus:border-emerald-500"><option value="">도움 없음</option>{sortedPlayers.filter(p => p.name !== newEvent.player && p.position !== 'Coach').map(p => (<option key={p.id} value={p.name}>{p.name}</option>))}</select>)}
+                                            {newEvent.type === 'sub' && (<select value={newEvent.subPlayer} onChange={(e) => setNewEvent({...newEvent, subPlayer: e.target.value})} className="flex-1 p-2 rounded-xl border border-gray-200 text-xs focus:outline-none focus:border-emerald-500"><option value="">OUT 선수</option>{sortedPlayers.filter(p => p.name !== newEvent.player && p.position !== 'Coach').map(p => (<option key={p.id} value={p.name}>{p.name}</option>))}</select>)}
                                             <button onClick={handleAddEvent} className="w-10 bg-emerald-600 text-white rounded-xl flex items-center justify-center hover:bg-emerald-700"><Plus className="w-5 h-5" /></button>
                                         </div>
                                     </div>
@@ -1053,7 +1129,7 @@
                             <div className="bg-white w-full max-w-xs rounded-2xl overflow-hidden shadow-2xl">
                                 <div className="p-4 border-b border-gray-100 flex justify-between items-center"><h4 className="font-bold text-gray-900">선수 선택</h4><button onClick={() => setSelectedLineupPos(null)}><X className="w-5 h-5 text-gray-400"/></button></div>
                                 <div className="max-h-80 overflow-y-auto p-2">
-                                    {players.filter(p => p.position !== 'Coach').map(player => {
+                                    {sortedPlayers.filter(p => p.position !== 'Coach').map(player => {
                                         const currentLineup = data.formations[activeFormationTab].lineup;
                                         const isAssigned = Object.values(currentLineup).includes(player.id) && currentLineup[selectedLineupPos] !== player.id;
                                         const isInjured = player.injury && player.injury.status === 'injured';
@@ -1148,12 +1224,12 @@
                                     const isTaken = takenNumbers.includes(num);
                                     const isSelected = parseInt(formData.number) === num;
                                     return (
-                                        <button
+                                        <button 
                                             key={num}
                                             disabled={isTaken}
                                             onClick={() => setFormData({...formData, number: num.toString()})}
                                             className={`
-                                                aspect-square rounded-lg text-xs font-bold flex items-center justify-center transition-all
+                                                aspect-square rounded-lg text-xs font-bold flex items-center justify-center transition-all 
                                                 ${isTaken ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 
                                                 isSelected ? 'bg-emerald-600 text-white shadow-md scale-110' : 'bg-white border border-gray-200 text-gray-600 hover:border-emerald-500 hover:text-emerald-600'}
                                             `}
@@ -1178,14 +1254,21 @@
             if (!isOpen) return null;
             const [editData, setEditData] = useState(teamInfo);
 
+            // 모달이 열릴 때 props로 전달된 teamInfo로 상태 동기화
+            useEffect(() => {
+                if (isOpen) {
+                    setEditData(teamInfo);
+                }
+            }, [isOpen, teamInfo]);
+
             const handleLogoUpload = (e) => {
                 const file = e.target.files[0];
                 if (file) {
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                    setEditData(prev => ({ ...prev, logo: reader.result }));
-                };
-                reader.readAsDataURL(file);
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        setEditData(prev => ({ ...prev, logo: reader.result }));
+                    };
+                    reader.readAsDataURL(file);
                 }
             };
 
@@ -1195,12 +1278,18 @@
                 <div className="flex justify-between items-center mb-6"><h3 className="text-lg font-bold text-emerald-900">팀 설정</h3><button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button></div>
                 <div className="space-y-4">
                     <div className="flex flex-col items-center justify-center mb-4">
-                    <div className="w-20 h-20 rounded-full bg-emerald-50 flex items-center justify-center border-2 border-dashed border-emerald-200 overflow-hidden mb-2 relative group cursor-pointer">
-                        {editData.logo ? (<img src={editData.logo} alt="Team Logo" className="w-full h-full object-cover" />) : (<Shield className="w-8 h-8 text-emerald-200" />)}
-                        <input type="file" accept="image/*" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleLogoUpload}/>
-                        <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><Upload className="w-5 h-5 text-white" /></div>
+                    <div className="w-24 h-24 rounded-full bg-emerald-50 flex items-center justify-center border-2 border-dashed border-emerald-200 overflow-hidden mb-2 relative group cursor-pointer">
+                        {editData.logo ? (<img src={editData.logo} alt="Team Logo" className="w-full h-full object-cover" />) : (<Shield className="w-10 h-10 text-emerald-200" />)}
+                        
+                        {/* Overlay: pointer-events-none 추가하여 클릭 통과시킴 */}
+                        <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                            <Upload className="w-6 h-6 text-white" />
+                        </div>
+                        
+                        {/* Input: z-10 추가하여 가장 위에 배치 */}
+                        <input type="file" accept="image/*" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" onChange={handleLogoUpload}/>
                     </div>
-                    <span className="text-[10px] text-gray-400">팀 로고 변경</span>
+                    <span className="text-[10px] text-gray-400">팀 로고 변경 (클릭)</span>
                     </div>
                     <div><label className="block text-xs font-bold text-gray-500 mb-1.5 ml-1">팀 이름</label><input type="text" value={editData.name} onChange={(e) => setEditData({...editData, name: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"/></div>
                     <div><label className="block text-xs font-bold text-gray-500 mb-1.5 ml-1">창단일</label><input type="date" value={editData.founded} onChange={(e) => setEditData({...editData, founded: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"/></div>
@@ -1208,6 +1297,25 @@
                 <button onClick={() => onSave(editData)} className="w-full mt-8 bg-emerald-600 text-white font-bold py-3.5 rounded-xl hover:bg-emerald-700 active:scale-95 transition-all shadow-lg shadow-emerald-200">저장하기</button>
                 </div>
             </div>
+            );
+        };
+
+        const ConfirmModal = ({ isOpen, message, onClose, onConfirm, isDanger }) => {
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 bg-black/50 z-[80] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-3xl w-full max-w-xs p-6 shadow-2xl animate-in zoom-in duration-200">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-bold text-gray-900">확인</h3>
+                            <button onClick={onClose} className="p-1 rounded-full hover:bg-gray-100"><X className="w-5 h-5 text-gray-500" /></button>
+                        </div>
+                        <p className="text-sm text-gray-600 mb-6 font-bold">{message}</p>
+                        <div className="flex gap-3">
+                            <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 text-sm">취소</button>
+                            <button onClick={onConfirm} className={`flex-1 py-3 rounded-xl text-white font-bold shadow-lg text-sm ${isDanger ? 'bg-red-500 hover:bg-red-600' : 'bg-emerald-600 hover:bg-emerald-700'}`}>확인</button>
+                        </div>
+                    </div>
+                </div>
             );
         };
 
@@ -1355,12 +1463,22 @@
             );
         };
 
-        const LoginScreen = ({ onLogin, players }) => {
+        const LoginScreen = ({ onLogin, players, teamInfo, onOpenSettings }) => {
             const [mode, setMode] = useState('manager'); // 'manager' | 'player'
             const [selectedPlayerId, setSelectedPlayerId] = useState('');
+            const [password, setPassword] = useState(''); // 비밀번호 상태
+            const [loginError, setLoginError] = useState(''); // 에러 메시지 상태 추가
+
+            // Sorted Players for Dropdown
+            const sortedPlayers = useMemo(() => sortPlayersByPosition(players), [players]);
 
             const handleLogin = () => {
                 if (mode === 'manager') {
+                    // 비밀번호 확인 로직
+                    if (password !== '1234') {
+                        setLoginError('비밀번호가 틀렸습니다'); // 에러 메시지 설정
+                        return; 
+                    }
                     onLogin({ role: 'manager', name: '감독' });
                 } else {
                     if (!selectedPlayerId) return alert('선수를 선택해주세요.');
@@ -1369,13 +1487,42 @@
                 }
             };
 
+            // 모드 변경 시 에러 초기화
+            useEffect(() => {
+                setLoginError('');
+                setPassword('');
+                setSelectedPlayerId('');
+            }, [mode]);
+
+            // 창단 연도 추출
+            const foundedYear = teamInfo.founded ? teamInfo.founded.split('-')[0] : '';
+
             return (
-                <div className="min-h-screen bg-emerald-900 flex items-center justify-center p-4 font-sans">
+                <div className="min-h-screen bg-pitch flex items-center justify-center p-4 font-sans">
                     <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden p-8 flex flex-col items-center animate-in zoom-in duration-300">
-                        <div className="bg-emerald-100 p-4 rounded-full mb-6">
-                            <Shield className="w-12 h-12 text-emerald-600" />
+                        <div className="relative">
+                            <div className="w-24 h-24 rounded-full mb-2 overflow-hidden border-4 border-emerald-100 shadow-lg flex items-center justify-center bg-emerald-50">
+                                {teamInfo.logo ? (
+                                    <img src={teamInfo.logo} alt="Team Logo" className="w-full h-full object-cover" />
+                                ) : (
+                                    <div className="bg-emerald-100 w-full h-full flex items-center justify-center">
+                                        <Shield className="w-12 h-12 text-emerald-600" />
+                                    </div>
+                                )}
+                            </div>
+                            <button 
+                                onClick={onOpenSettings}
+                                className="absolute bottom-0 right-0 p-2 bg-white rounded-full shadow-md text-gray-400 hover:text-emerald-600 border border-gray-100 hover:border-emerald-200 transition-all z-10"
+                                title="팀 설정 변경"
+                            >
+                                <Settings className="w-4 h-4" />
+                            </button>
                         </div>
-                        <h1 className="text-2xl font-black text-emerald-900 mb-1">FC MANAGER</h1>
+                        
+                        {/* 창단 연도 표기 추가 */}
+                        <div className="text-[10px] font-bold text-emerald-600 tracking-widest opacity-80 mb-1">EST. {foundedYear}</div>
+
+                        <h1 className="text-2xl font-black text-emerald-900 mb-1 text-center">{teamInfo.name}</h1>
                         <p className="text-gray-500 text-xs mb-8">팀 통합 관리 시스템</p>
 
                         <div className="bg-gray-100 p-1 rounded-xl flex w-full mb-6">
@@ -1397,8 +1544,25 @@
                             {mode === 'manager' ? (
                                 <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100 text-center">
                                     <Lock className="w-6 h-6 text-emerald-600 mx-auto mb-2" />
-                                    <p className="text-xs text-emerald-800 font-bold">관리자 권한으로 로그인합니다.</p>
-                                    <p className="text-[10px] text-emerald-600 mt-1">모든 데이터의 수정 및 관리가 가능합니다.</p>
+                                    <p className="text-xs text-emerald-800 font-bold mb-3">관리자 비밀번호 입력</p>
+                                    
+                                    <input 
+                                        type="password" 
+                                        inputMode="numeric"
+                                        maxLength={4}
+                                        value={password}
+                                        onChange={(e) => {
+                                            setPassword(e.target.value);
+                                            if(loginError) setLoginError(''); // 입력 시작하면 에러 초기화
+                                        }}
+                                        className={`w-full p-3 text-center text-xl font-black tracking-widest bg-white border rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 mb-2 placeholder-emerald-200/50 transition-colors ${loginError ? 'border-red-500 ring-2 ring-red-100' : 'border-emerald-200'}`}
+                                        placeholder="●●●●"
+                                    />
+                                    {loginError ? (
+                                        <p className="text-xs text-red-500 font-bold animate-pulse">{loginError}</p>
+                                    ) : (
+                                        <p className="text-[10px] text-emerald-500">비밀번호 힌트: 1234</p>
+                                    )}
                                 </div>
                             ) : (
                                 <div>
@@ -1409,7 +1573,7 @@
                                         className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-bold"
                                     >
                                         <option value="">선수 선택...</option>
-                                        {players.filter(p => p.position !== 'Coach').map(p => (
+                                        {sortedPlayers.filter(p => p.position !== 'Coach').map(p => (
                                             <option key={p.id} value={p.id}>{p.number}. {p.name}</option>
                                         ))}
                                     </select>
@@ -1450,6 +1614,7 @@
         const [isAddPlayerOpen, setIsAddPlayerOpen] = useState(false);
         const [isTeamSettingsOpen, setIsTeamSettingsOpen] = useState(false);
         const [votingSchedule, setVotingSchedule] = useState(null); 
+        const [deleteTargetId, setDeleteTargetId] = useState(null);
         
         const [selectedPlayer, setSelectedPlayer] = useState(null); 
         const [scheduleFormData, setScheduleFormData] = useState({ id: null, date: '', time: '', opponent: '', location: '' });
@@ -1591,8 +1756,13 @@
         };
 
         const handleDeleteSchedule = (id) => {
-            if (window.confirm('이 일정을 삭제하시겠습니까?')) {
-                setSchedule(prev => prev.filter(s => s.id !== id));
+            setDeleteTargetId(id);
+        };
+
+        const executeDeleteSchedule = () => {
+            if (deleteTargetId) {
+                setSchedule(prev => prev.filter(s => s.id !== deleteTargetId));
+                setDeleteTargetId(null);
             }
         };
 
@@ -1743,144 +1913,160 @@
             return sortConfig.direction === 'ascending' ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />;
         };
 
-        if (!currentUser) {
-            return <LoginScreen players={players} onLogin={setCurrentUser} />;
-        }
-
         return (
-            <div className="min-h-screen bg-gray-100 font-sans text-gray-900 flex justify-center">
+            <div className="min-h-screen bg-pitch font-sans text-gray-900 flex justify-center">
             <div className="w-full max-w-md bg-white min-h-screen shadow-2xl relative flex flex-col">
-                <header className="bg-white/80 backdrop-blur-md sticky top-0 z-20 border-b border-gray-100">
-                    <div className="px-5 h-14 flex items-center justify-between">
-                        <div className="flex items-center gap-3 font-black text-lg text-emerald-800">
-                        {teamInfo.logo ? (<img src={teamInfo.logo} alt="Logo" className="w-8 h-8 rounded-full object-cover border border-gray-200" />) : (<Shield className="w-6 h-6 fill-emerald-100" />)}
-                        <div className="flex flex-col leading-none">
-                            <span>{teamInfo.name}</span>
-                            <span className="text-[9px] text-emerald-600 font-normal tracking-wide">
-                                {isManager ? '감독 모드' : `NO.${currentUser.number} ${currentUser.name}`}
-                            </span>
-                        </div>
-                        </div>
-                        <div className="flex gap-2">
-                            {isManager && <button onClick={() => setIsTeamSettingsOpen(true)} className="p-2 rounded-full text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"><Settings className="w-5 h-5" /></button>}
-                            <button onClick={() => setCurrentUser(null)} className="p-2 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"><LogOut className="w-5 h-5" /></button>
-                        </div>
-                    </div>
-                </header>
-                <main className="flex-1 p-5 overflow-y-auto scrollbar-hide">
-                    {activeTab === 'dashboard' && (
-                        <DashboardView 
-                            currentStats={currentStats}
-                            schedule={schedule}
-                            matches={matches}
-                            selectedYear={selectedYear}
-                            onYearChange={setSelectedYear}
-                            isManager={isManager}
-                            onEnterResult={handleEnterResult}
-                            onEditMatch={handleEditMatch}
-                            currentUser={currentUser}
-                        />
-                    )}
-                    {activeTab === 'squad' && (
-                        <SquadView 
+                {!currentUser ? (
+                    <LoginScreen 
+                        players={players} 
+                        onLogin={setCurrentUser} 
+                        teamInfo={teamInfo} 
+                        onOpenSettings={() => setIsTeamSettingsOpen(true)}
+                    />
+                ) : (
+                    <>
+                        <header className="bg-emerald-800/90 text-white backdrop-blur-md sticky top-0 z-20 border-b border-emerald-700">
+                            <div className="px-5 h-14 flex items-center justify-between">
+                                <div className="flex items-center gap-3 font-black text-lg">
+                                {teamInfo.logo ? (<img src={teamInfo.logo} alt="Logo" className="w-8 h-8 rounded-full object-cover border border-emerald-600" />) : (<Shield className="w-6 h-6 fill-emerald-100" />)}
+                                <div className="flex flex-col leading-none">
+                                    <span>{teamInfo.name}</span>
+                                    <span className="text-[9px] text-emerald-200 font-normal tracking-wide">
+                                        {isManager ? '감독 모드' : `NO.${currentUser.number} ${currentUser.name}`}
+                                    </span>
+                                </div>
+                                </div>
+                                <div className="flex gap-2">
+                                    {isManager && <button onClick={() => setIsTeamSettingsOpen(true)} className="p-2 rounded-full text-emerald-200 hover:text-white hover:bg-emerald-700 transition-colors"><Settings className="w-5 h-5" /></button>}
+                                    <button onClick={() => setCurrentUser(null)} className="p-2 rounded-full text-emerald-200 hover:text-red-300 hover:bg-red-900/30 transition-colors"><LogOut className="w-5 h-5" /></button>
+                                </div>
+                            </div>
+                        </header>
+                        <main className="flex-1 p-5 overflow-y-auto scrollbar-hide">
+                            {activeTab === 'dashboard' && (
+                                <DashboardView 
+                                    currentStats={currentStats}
+                                    schedule={schedule}
+                                    matches={matches}
+                                    selectedYear={selectedYear}
+                                    onYearChange={setSelectedYear}
+                                    isManager={isManager}
+                                    onEnterResult={handleEnterResult}
+                                    onEditMatch={handleEditMatch}
+                                    currentUser={currentUser}
+                                />
+                            )}
+                            {activeTab === 'squad' && (
+                                <SquadView 
+                                    players={players}
+                                    matches={matches}
+                                    playerStats={playerStats}
+                                    isManager={isManager}
+                                    onAddPlayer={() => setIsAddPlayerOpen(true)}
+                                    onSelectPlayer={setSelectedPlayer}
+                                    currentUser={currentUser}
+                                />
+                            )}
+                            {activeTab === 'team' && (
+                                <RecordsView 
+                                    matches={matches}
+                                    selectedYear={selectedYear}
+                                    onYearChange={setSelectedYear}
+                                    recordTab={recordTab}
+                                    setRecordTab={setRecordTab}
+                                    onExport={handleExportData}
+                                    sortedPlayers={sortedPlayers}
+                                    sortConfig={sortConfig}
+                                    requestSort={requestSort}
+                                    getSortIcon={getSortIcon}
+                                    onSelectPlayer={setSelectedPlayer}
+                                    onEditMatch={handleEditMatch}
+                                    isManager={isManager}
+                                />
+                            )}
+                            {activeTab === 'schedule' && (
+                                <ScheduleView 
+                                    schedule={schedule}
+                                    isManager={isManager}
+                                    onAdd={openAddScheduleModal}
+                                    onEnterResult={handleEnterResult}
+                                    onEdit={openEditScheduleModal}
+                                    onDelete={handleDeleteSchedule}
+                                    onOpenVote={setVotingSchedule}
+                                />
+                            )}
+                        </main>
+                        <nav className="bg-emerald-800 text-white border-t border-emerald-700 px-2 py-2 pb-6 safe-area-pb sticky bottom-0 z-20 shrink-0">
+                            <div className="flex justify-around items-center">
+                                <TabButton active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={BarChart2}>홈</TabButton>
+                                <TabButton active={activeTab === 'schedule'} onClick={() => setActiveTab('schedule')} icon={Calendar}>일정</TabButton>
+                                <TabButton active={activeTab === 'team'} onClick={() => setActiveTab('team')} icon={Trophy}>기록</TabButton>
+                                <TabButton active={activeTab === 'squad'} onClick={() => setActiveTab('squad')} icon={Shirt}>스쿼드</TabButton>
+                            </div>
+                        </nav>
+                        
+                        <MatchEditor 
+                            isOpen={!!editingMatch} 
+                            initialMatch={editingMatch} 
+                            onClose={() => setEditingMatch(null)} 
+                            onSave={handleSaveMatch}
                             players={players}
-                            matches={matches}
-                            playerStats={playerStats}
-                            isManager={isManager}
-                            onAddPlayer={() => setIsAddPlayerOpen(true)}
-                            onSelectPlayer={setSelectedPlayer}
+                            teamInfo={teamInfo}
+                            isManager={isManager} 
+                        />
+                        
+                        <ScheduleModal 
+                            isOpen={isScheduleModalOpen} 
+                            initialData={scheduleFormData} 
+                            onClose={() => setIsScheduleModalOpen(false)} 
+                            onSave={handleSaveSchedule} 
+                        />
+
+                        <AttendanceModal
+                            isOpen={!!votingSchedule}
+                            scheduleItem={votingSchedule}
+                            players={players}
                             currentUser={currentUser}
+                            onClose={() => setVotingSchedule(null)}
+                            onVote={handleVote}
                         />
-                    )}
-                    {activeTab === 'team' && (
-                        <RecordsView 
-                            matches={matches}
-                            selectedYear={selectedYear}
-                            onYearChange={setSelectedYear}
-                            recordTab={recordTab}
-                            setRecordTab={setRecordTab}
-                            onExport={handleExportData}
-                            sortedPlayers={sortedPlayers}
-                            sortConfig={sortConfig}
-                            requestSort={requestSort}
-                            getSortIcon={getSortIcon}
-                            onSelectPlayer={setSelectedPlayer}
-                            onEditMatch={handleEditMatch}
-                            isManager={isManager}
+
+                        <AddPlayerModal 
+                            isOpen={isAddPlayerOpen} 
+                            onClose={() => setIsAddPlayerOpen(false)} 
+                            onAdd={handleAddPlayer} 
+                            players={players} 
                         />
-                    )}
-                    {activeTab === 'schedule' && (
-                        <ScheduleView 
-                            schedule={schedule}
-                            isManager={isManager}
-                            onAdd={openAddScheduleModal}
-                            onEnterResult={handleEnterResult}
-                            onEdit={openEditScheduleModal}
-                            onDelete={handleDeleteSchedule}
-                            onOpenVote={setVotingSchedule}
+
+                        <ConfirmModal 
+                            isOpen={!!deleteTargetId}
+                            message="이 일정을 정말 삭제하시겠습니까?"
+                            onClose={() => setDeleteTargetId(null)}
+                            onConfirm={executeDeleteSchedule}
+                            isDanger={true}
                         />
-                    )}
-                </main>
-                <nav className="bg-white border-t border-gray-100 px-2 py-2 pb-6 safe-area-pb sticky bottom-0 z-20 shrink-0">
-                    <div className="flex justify-around items-center">
-                        <TabButton active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={BarChart2}>홈</TabButton>
-                        <TabButton active={activeTab === 'schedule'} onClick={() => setActiveTab('schedule')} icon={Calendar}>일정</TabButton>
-                        <TabButton active={activeTab === 'team'} onClick={() => setActiveTab('team')} icon={Trophy}>기록</TabButton>
-                        <TabButton active={activeTab === 'squad'} onClick={() => setActiveTab('squad')} icon={Shirt}>스쿼드</TabButton>
-                    </div>
-                </nav>
-                
-                <MatchEditor 
-                    isOpen={!!editingMatch} 
-                    initialMatch={editingMatch} 
-                    onClose={() => setEditingMatch(null)} 
-                    onSave={handleSaveMatch}
-                    players={players}
-                    teamInfo={teamInfo}
-                    isManager={isManager} 
-                />
-                
-                <ScheduleModal 
-                    isOpen={isScheduleModalOpen} 
-                    initialData={scheduleFormData} 
-                    onClose={() => setIsScheduleModalOpen(false)} 
-                    onSave={handleSaveSchedule} 
-                />
 
-                <AttendanceModal
-                    isOpen={!!votingSchedule}
-                    scheduleItem={votingSchedule}
-                    players={players}
-                    currentUser={currentUser}
-                    onClose={() => setVotingSchedule(null)}
-                    onVote={handleVote}
-                />
+                        {selectedPlayer && (
+                            <PlayerDetailModal 
+                                player={selectedPlayer} 
+                                matches={matches} 
+                                stats={playerStats.find(p => p.id === selectedPlayer.id) || { goals: 0, assists: 0, conceded: 0, gkApps: 0 }}
+                                onClose={() => setSelectedPlayer(null)}
+                                onUpdate={handleUpdateInjury}
+                                isManager={isManager}
+                                isSelf={currentUser.role === 'player' && currentUser.id === selectedPlayer.id}
+                            />
+                        )}
+                    </>
+                )}
 
-                <AddPlayerModal 
-                    isOpen={isAddPlayerOpen} 
-                    onClose={() => setIsAddPlayerOpen(false)} 
-                    onAdd={handleAddPlayer} 
-                    players={players} 
-                />
-
+                {/* Team Settings Modal - Accessible from both Login and Main App */}
                 <TeamSettingsModal 
                     isOpen={isTeamSettingsOpen} 
                     teamInfo={teamInfo} 
                     onClose={() => setIsTeamSettingsOpen(false)} 
                     onSave={handleSaveTeamSettings} 
                 />
-
-                {selectedPlayer && (
-                    <PlayerDetailModal 
-                        player={selectedPlayer} 
-                        matches={matches} 
-                        stats={playerStats.find(p => p.id === selectedPlayer.id) || { goals: 0, assists: 0, conceded: 0, gkApps: 0 }}
-                        onClose={() => setSelectedPlayer(null)}
-                        onUpdate={handleUpdateInjury}
-                        isManager={isManager}
-                        isSelf={currentUser.role === 'player' && currentUser.id === selectedPlayer.id}
-                    />
-                )}
             </div>
             </div>
         );
